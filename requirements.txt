@@ -1,0 +1,9 @@
+transformers
+sentence-transformers
+faiss-cpu
+beautifulsoup4
+lxml
+pandas
+numpy
+scikit-learn
+tqdm
