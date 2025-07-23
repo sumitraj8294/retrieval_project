@@ -3,23 +3,26 @@ import re
 import unicodedata
 import pandas as pd
 import numpy as np
-from tqdm.auto import tqdm 
-import faiss 
-from sentence_transformers import SentenceTransformer, CrossEncoder 
-from sklearn.metrics import average_precision_score, ndcg_score 
+from tqdm.auto import tqdm # For progress bars
+import faiss # For efficient similarity search
+from sentence_transformers import SentenceTransformer, CrossEncoder # For SBERT and Cross-Encoder
+from sklearn.metrics import average_precision_score, ndcg_score # For evaluation metrics
 
-
+# --- Configuration ---
+# Define paths to your data files
 DATA_DIR = 'data'
-CORPUS_FILE = os.path.join(DATA_DIR, 'corpus.txt')  
-QUERIES_FILE = os.path.join(DATA_DIR, 'queries.txt') 
+CORPUS_FILE = os.path.join(DATA_DIR, 'corpus.txt')  # Changed to .txt
+QUERIES_FILE = os.path.join(DATA_DIR, 'queries.txt') # Changed to .txt
 QRELS_FILE = os.path.join(DATA_DIR, 'qrels.txt')
 
+# Define the models to use
 SBERT_MODEL_NAME = 'paraphrase-multilingual-mpnet-base-v2'
 CROSS_ENCODER_MODEL_NAME = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
 
 # Retrieval parameters
 TOP_K_RETRIEVAL = 100 # Number of documents to retrieve in the first stage (SBERT + FAISS)
 TOP_K_RERANKING = 10  # Number of documents to re-rank and return as final results
+SUBMISSION_TAG = "SBERT_BERT_Retrieval" # Tag for the submission file
 
 # --- Text Preprocessing Functions ---
 def clean_text(text):
@@ -152,6 +155,7 @@ def run_retrieval_system():
         b. Performs initial retrieval using FAISS.
         c. Re-ranks top results using the Cross-Encoder.
     5. Evaluates the results against qrels.
+    6. Saves results in the specified submission format.
     """
     print("--- Starting Retrieval System ---")
 
@@ -193,6 +197,7 @@ def run_retrieval_system():
     # 4. Process Queries
     print("\nProcessing queries and performing retrieval...")
     retrieved_results = {} # Store results for evaluation {query_id: {doc_id: rank}}
+    submission_data = [] # List to store data for the submission CSV
 
     for query_id, query_text in tqdm(queries.items(), desc="Processing Queries"):
         # Generate query embedding
@@ -205,7 +210,6 @@ def run_retrieval_system():
         
         # Get actual document IDs from FAISS indices
         initial_retrieved_doc_ids = [corpus_ids[idx] for idx in faiss_indices[0]]
-        # initial_retrieved_scores = [1 - dist for dist in distances[0]] # Convert L2 distance to similarity (higher is better)
 
         # Prepare pairs for Cross-Encoder re-ranking
         cross_encoder_pairs = []
@@ -229,10 +233,17 @@ def run_retrieval_system():
         # Sort by Cross-Encoder score in descending order
         doc_scores.sort(key=lambda x: x[1], reverse=True)
 
-        # Store the top K re-ranked results
+        # Store the top K re-ranked results and prepare for submission
         current_query_results = {}
         for rank, (doc_id, score) in enumerate(doc_scores[:TOP_K_RERANKING]):
             current_query_results[doc_id] = rank + 1 # Store rank (1-based)
+            submission_data.append({
+                'qid': query_id,
+                'docno': doc_id,
+                'rank': rank + 1,
+                'score': score,
+                'tag': SUBMISSION_TAG
+            })
         retrieved_results[query_id] = current_query_results
 
     # 5. Evaluate Results
@@ -280,6 +291,15 @@ def run_retrieval_system():
     print(f"\n--- Evaluation Results (Top {TOP_K_RERANKING} Re-ranked) ---")
     print(f"Mean Average Precision (MAP): {mean_map:.4f}")
     print(f"Mean NDCG: {mean_ndcg:.4f}")
+    
+    # 6. Save results in the specified submission format
+    print("\nSaving results to res_file.csv...")
+    res_file = pd.DataFrame(submission_data)
+    # Ensure columns are in the correct order
+    res_file = res_file[['qid', 'docno', 'rank', 'score', 'tag']]
+    res_file.to_csv('res_file.csv', index=False)
+    print("Results saved successfully.")
+
     print("--- Retrieval System Finished ---")
 
 if __name__ == "__main__":
